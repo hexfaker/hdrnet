@@ -222,7 +222,7 @@ if __name__ == '__main__':
   # Data pipeline and data augmentation
   data_grp = parser.add_argument_group('data pipeline')
   data_grp.add_argument('--batch_size', default=16, type=int, help='size of a batch for each gradient update.')
-  data_grp.add_argument('--data_threads', default=2, help='number of threads to load and enqueue samples.')
+  data_grp.add_argument('--data_threads', default=2, type=int, help='number of threads to load and enqueue samples.')
   data_grp.add_argument('--rotate', dest="rotate", action="store_true", help='rotate data augmentation.')
   data_grp.add_argument('--norotate', dest="rotate", action="store_false")
   data_grp.add_argument('--flipud', dest="flipud", action="store_true", help='flip up/down data augmentation.')

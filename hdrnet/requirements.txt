@@ -12,3 +12,4 @@ setproctitle==1.1.10
 six==1.11.0
 tensorflow-gpu==1.1.0
 Werkzeug==0.14.1
+pillow==2.9.0
