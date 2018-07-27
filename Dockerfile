@@ -5,6 +5,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \ 
             python \
             python-pip \
+            python-magic \
             python-setuptools \
             python2.7-dev \
             python-opencv \
@@ -14,7 +15,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir Cython numpy pytest scipy
 
-COPY hdrnet /opt/hdrnet
+COPY hdrnet/requirements.txt /opt/requirements.txt
+RUN pip install --no-cache-dir -r /opt/requirements.txt
 WORKDIR /opt/hdrnet
-RUN pip install --no-cache-dir -r requirements.txt
-RUN make && py.test test
+COPY hdrnet /opt/hdrnet
+RUN make
