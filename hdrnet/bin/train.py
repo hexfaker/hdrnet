@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2016 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,8 +38,7 @@ def log_hook(sess, log_fetches):
     data = sess.run(log_fetches)
     step = data['step']
     loss = data['loss']
-    psnr = data['psnr']
-    log.info('Step {} | loss = {:.4f} | psnr = {:.1f} dB'.format(step, loss, psnr))
+    log.info('Step {} | loss = {:.4f} '.format(step, loss))
 
 
 def main(args, model_config, data_params):
@@ -73,6 +72,7 @@ def main(args, model_config, data_params):
             output_resolution=args.output_resolution)
         train_samples = train_data_pipeline.samples
 
+    eval_samples = None
     if args.eval_data_dir is not None:
         with tf.variable_scope('eval_data'):
             eval_data_pipeline = data_pipe(
@@ -89,20 +89,18 @@ def main(args, model_config, data_params):
     with tf.name_scope('train'):
         with tf.variable_scope('inference'):
             prediction = mdl.inference(
-                train_samples['lowres_input'], train_samples['image_input'],
-                train_samples['params'],
+                train_samples['lowres_input'], train_samples['image_input'], train_samples['params'],
                 model_config, is_training=True)
-        loss = metrics.l2_loss(train_samples['image_output'], prediction)
-        psnr = metrics.psnr(train_samples['image_output'], prediction)
+        loss = metrics.l1_loss(train_samples['image_output'], prediction)
 
     # Evaluation graph
-    if args.eval_data_dir is not None:
+    if eval_samples is not None:
         with tf.name_scope('eval'):
             with tf.variable_scope('inference', reuse=True):
                 eval_prediction = mdl.inference(
-                    eval_samples['lowres_input'], eval_samples['image_input'],
+                    eval_samples['lowres_input'], eval_samples['image_input'], eval_samples['params'],
                     model_config, is_training=False)
-            eval_psnr = metrics.psnr(eval_samples['image_output'], prediction)
+            eval_loss = metrics.l1_loss(eval_samples['image_output'], eval_prediction)
 
     # Optimizer
     global_step = tf.contrib.framework.get_or_create_global_step()
@@ -113,24 +111,23 @@ def main(args, model_config, data_params):
 
         reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         if reg_losses and args.weight_decay is not None and args.weight_decay > 0:
-            print "Regularization losses:"
+            print("Regularization losses:")
             for rl in reg_losses:
-                print " ", rl.name
+                print(" ", rl.name)
             opt_loss = loss + args.weight_decay * sum(reg_losses)
         else:
-            print "No regularization."
+            print("No regularization.")
             opt_loss = loss
 
         with tf.control_dependencies([updates]):
             opt = tf.train.AdamOptimizer(args.learning_rate)
             minimize = opt.minimize(opt_loss, name='optimizer', global_step=global_step)
 
-    # Average loss and psnr for display
+    # Average loss and for display
     with tf.name_scope("moving_averages"):
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
-        update_ma = ema.apply([loss, psnr])
+        update_ma = ema.apply([loss])
         loss = ema.average(loss)
-        psnr = ema.average(psnr)
 
     # Training stepper operation
     train_op = tf.group(minimize, update_ma)
@@ -138,15 +135,14 @@ def main(args, model_config, data_params):
     # Save a few graphs to tensorboard
     summaries = [
         tf.summary.scalar('loss', loss),
-        tf.summary.scalar('psnr', psnr),
         tf.summary.scalar('learning_rate', args.learning_rate),
         tf.summary.scalar('batch_size', args.batch_size),
     ]
 
     log_fetches = {
         "step": global_step,
-        "loss": loss,
-        "psnr": psnr}
+        "loss": loss
+    }
 
     # Train config
     config = tf.ConfigProto()
@@ -154,7 +150,8 @@ def main(args, model_config, data_params):
     sv = tf.train.Supervisor(
         logdir=args.checkpoint_dir,
         save_summaries_secs=args.summary_interval,
-        save_model_secs=args.checkpoint_interval)
+        save_model_secs=args.checkpoint_interval,
+        saver=tf.train.Saver(max_to_keep=50))
 
     # Train loop
     with sv.managed_session(config=config) as sess:
@@ -169,18 +166,22 @@ def main(args, model_config, data_params):
                 since_eval = time.time() - last_eval
 
                 if args.eval_data_dir is not None and since_eval > args.eval_interval:
-                    log.info("Evaluating on {} images at step {}".format(
+                    log.info("Evaluating on {} images at step {}. Checkpoint saved".format(
                         eval_data_pipeline.nsamples, step))
+
+                    sv.saver.save(sess, os.path.join(args.checkpoint_dir, 'eval_{}.ckpt'.format(step)))
 
                     p_ = 0
                     for it in range(eval_data_pipeline.nsamples):
-                        p_ += sess.run(eval_psnr)
+                        p_ += sess.run(eval_loss)
                     p_ /= eval_data_pipeline.nsamples
 
-                    sv.summary_writer.add_summary(tf.Summary(value=[
-                        tf.Summary.Value(tag="psnr/eval", simple_value=p_)]), global_step=step)
+                    sv.summary_writer.add_summary(
+                        tf.Summary(value=[tf.Summary.Value(tag="loss/eval", simple_value=p_)]),
+                        global_step=step
+                    )
 
-                    log.info("  Evaluation PSNR = {:.1f} dB".format(p_))
+                    log.info("  Evaluation L1 = {:.4f}".format(p_))
 
                     last_eval = time.time()
 
@@ -211,11 +212,11 @@ if __name__ == '__main__':
                            help='learning rate for the stochastic gradient update.')
     train_grp.add_argument('--weight_decay', default=None, type=float, help='l2 weight decay on FC and Conv layers.')
     train_grp.add_argument('--log_interval', type=int, default=1, help='interval between log messages (in s).')
-    train_grp.add_argument('--summary_interval', type=int, default=120,
+    train_grp.add_argument('--summary_interval', type=int, default=10,
                            help='interval between tensorboard summaries (in s)')
-    train_grp.add_argument('--checkpoint_interval', type=int, default=600,
+    train_grp.add_argument('--checkpoint_interval', type=int, default=120,
                            help='interval between model checkpoints (in s)')
-    train_grp.add_argument('--eval_interval', type=int, default=3600, help='interval between evaluations (in s)')
+    train_grp.add_argument('--eval_interval', type=int, default=120, help='interval between evaluations (in s)')
 
     # Debug and perf profiling
     debug_grp = parser.add_argument_group('debug and profiling')
@@ -235,27 +236,12 @@ if __name__ == '__main__':
     data_grp.add_argument('--random_crop', dest="random_crop", action="store_true",
                           help='random crop data augmentation.')
     data_grp.add_argument('--norandom_crop', dest="random_crop", action="store_false")
-    data_grp.add_argument('--lr_params', default=
-                           ["Blacks2012",
-                            "Clarity2012",
-                            "Contrast2012",
-                            "Exposure2012",
-                            "Highlights2012",
-                            "Saturation",
-                            "Shadows2012",
-                            "Temperature",
-                            "Tint",
-                            "Vibrance",
-                            "Whites2012"
-                            ],
-                           nargs='+',
-                           type=list, help='Names and order of lightroom parameters to use')
 
     # Model parameters
     model_grp = parser.add_argument_group('model_params')
     model_grp.add_argument('--model_name', default='HDRNetCurves', type=str, help='classname of the model to use.',
                            choices=models.__all__)
-    model_grp.add_argument('--data_pipeline', default='LRNetDataPipeline',
+    model_grp.add_argument('--data_pipeline', default=dp.__all__[0],
                            help='classname of the data pipeline to use.', choices=dp.__all__)
     model_grp.add_argument('--net_input_size', default=256, type=int, help="size of the network's lowres image input.")
     model_grp.add_argument('--output_resolution', default=[512, 512], type=int, nargs=2,
@@ -266,6 +252,7 @@ if __name__ == '__main__':
     model_grp.add_argument('--channel_multiplier', default=1, type=int,
                            help='Factor to control net throughput (number of intermediate channels).')
     model_grp.add_argument('--guide_complexity', default=16, type=int, help='Control complexity of the guide network.')
+    model_grp.add_argument('--lr_params', default=11, type=int, help='Number of lightroom parameters')
 
     # Bilateral grid parameters
     model_grp.add_argument('--luma_bins', default=8, type=int, help='Number of BGU bins for the luminance.')
@@ -287,11 +274,9 @@ model_cofig = {}
 for a in model_grp._group_actions:
     model_cofig[a.dest] = getattr(args, a.dest, None)
 
-model_cofig['lr_params'] = len(args.lr_params)
-
 dataloader_config = {}
 for a in data_grp._group_actions:
     dataloader_config[a.dest] = getattr(args, a.dest, None)
-
+dataloader_config['lr_params'] = args.lr_params
 
 main(args, model_cofig, dataloader_config)

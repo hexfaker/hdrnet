@@ -82,7 +82,7 @@ class HDRNetCurves(object):
                 else:
                     use_bn = False
                 depth = channel_multiplier * (2 ** i) * grid_depth
-                print depth
+                print(depth)
                 current_layer = conv(current_layer, depth, 3, stride=2,
                                      batch_norm=use_bn, is_training=is_training,
                                      scope='conv{}'.format(i + 1))
@@ -286,7 +286,7 @@ class HDRNetGaussianPyrNN(HDRNetPointwiseNNGuide):
 
     @classmethod
     def _output(cls, lvls, guide_lvls, coeffs):
-        for il, (lvl, guide_lvl) in enumerate(reversed(zip(lvls, guide_lvls))):
+        for il, (lvl, guide_lvl) in enumerate(reversed(list(zip(lvls, guide_lvls)))):
             c = coeffs[:, :, :, :, il * 3:(il + 1) * 3, :]
             out_lvl = HDRNetPointwiseNNGuide._output(lvl, guide_lvl, c)
 

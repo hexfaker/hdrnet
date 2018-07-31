@@ -151,8 +151,8 @@ class BilateralSliceTest(tf.test.TestCase):
             output_tensor,
             output_shape, delta=1e-4)
 
-        print th
-        print num
+        print(th)
+        print(num)
 
         thresh = 5e-3
         diff = np.abs(th-num)
@@ -163,15 +163,15 @@ class BilateralSliceTest(tf.test.TestCase):
           out_c = y[i] % nchans
           out_x = (y[i]/nchans) % w
           out_y = (y[i]/nchans) / w
-          print "output ({},{},{}) - input ({},{})\n  guide: {:f}\n  theoretical: {:f}\n  numerical: {:f}".format(
-              out_y, out_x, out_c, in_y, in_x, np.ravel(guide_data)[x[i]], th[x[i], y[i]], num[x[i],y[i]])
+          print("output ({},{},{}) - input ({},{})\n  guide: {:f}\n  theoretical: {:f}\n  numerical: {:f}".format(
+              out_y, out_x, out_c, in_y, in_x, np.ravel(guide_data)[x[i]], th[x[i], y[i]], num[x[i],y[i]]))
 
-        print len(x), 'of', len(np.ravel(diff)), 'errors'
+        print(len(x), 'of', len(np.ravel(diff)), 'errors')
 
-        print 'gradient shape', th.shape
-        print 'guide shape', guide_data.shape
-        print 'grid shape', grid_data.shape
-        print 'output shape', output_shape
+        print('gradient shape', th.shape)
+        print('guide shape', guide_data.shape)
+        print('grid shape', grid_data.shape)
+        print('output shape', output_shape)
 
         self.assertLess(np.amax(diff), thresh)
 
@@ -221,7 +221,7 @@ class BilateralSliceTest(tf.test.TestCase):
         for step in range(10000):
           _, l_ = sess.run([opt, loss])
           if step % 100 == 0:
-            print "Step {}, loss = {:.5f}".format(step, l_)
+            print("Step {}, loss = {:.5f}".format(step, l_))
 
         out_, target_ = sess.run([output, target])
         out_ = np.squeeze(out_)
@@ -267,7 +267,7 @@ class BilateralSliceTest(tf.test.TestCase):
         for step in range(6000):
           _, l_ = sess.run([opt, loss])
           if step % 100 == 0:
-            print "Step {}, loss = {:.5f}".format(step, l_)
+            print("Step {}, loss = {:.5f}".format(step, l_))
 
         out_, target_, guide_, grid_ = sess.run([output, target, guide, grid])
         out_ = np.squeeze(out_)
@@ -311,7 +311,7 @@ class BilateralSliceTest(tf.test.TestCase):
         for step in range(10000):
           _, l_ = sess.run([opt, loss])
           if step % 100 == 0:
-            print "Step {}, loss = {:.5f}".format(step, l_)
+            print("Step {}, loss = {:.5f}".format(step, l_))
 
         out_, target_, guide_, grid_ = sess.run([output, target, guide, grid])
         out_ = np.squeeze(out_)

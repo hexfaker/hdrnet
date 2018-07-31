@@ -1,4 +1,4 @@
-TF_INC ?= `python -c 'import tensorflow as tf; print(tf.sysconfig.get_include())'`
+TF_INC ?= `python3 -c 'import tensorflow as tf; print(tf.sysconfig.get_include())'`
 # TF_INC ?= /usr/local/lib/python2.7/dist-packages/tensorflow/include
 CUDA_HOME ?= /usr/local/cuda
 

@@ -19,15 +19,21 @@ import numpy as np
 
 
 def l2_loss(target, prediction, name=None):
-  with tf.name_scope(name, default_name='l2_loss', values=[target, prediction]):
-    loss = tf.reduce_mean(tf.square(target-prediction))
-  return loss
+    with tf.name_scope(name, default_name='l2_loss', values=[target, prediction]):
+        loss = tf.reduce_mean(tf.square(target - prediction))
+    return loss
+
+
+def l1_loss(target, prediction, name=None):
+    with tf.name_scope(name, default_name='l1_loss', values=[target, prediction]):
+        loss = tf.reduce_mean(tf.abs(target - prediction))
+    return loss
 
 
 def psnr(target, prediction, name=None):
-  with tf.name_scope(name, default_name='psnr_op', values=[target, prediction]):
-    squares = tf.square(target-prediction, name='squares')
-    squares = tf.reshape(squares, [tf.shape(squares)[0], -1])
-    # mean psnr over a batch
-    p = tf.reduce_mean((-10/np.log(10))*tf.log(tf.reduce_mean(squares, axis=[1])))
-  return p
+    with tf.name_scope(name, default_name='psnr_op', values=[target, prediction]):
+        squares = tf.square(target - prediction, name='squares')
+        squares = tf.reshape(squares, [tf.shape(squares)[0], -1])
+        # mean psnr over a batch
+        p = tf.reduce_mean((-10 / np.log(10)) * tf.log(tf.reduce_mean(squares, axis=[1])))
+    return p

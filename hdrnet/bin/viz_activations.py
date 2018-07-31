@@ -99,13 +99,13 @@ def main(args):
       tf.global_variables_initializer().run()
 
       w_ = sess.run(weights, {t_lowres_input: im0})
-      for name in w_.keys():
+      for name in list(w_.keys()):
         im_viz = viz_array(w_[name])
         path = os.path.join(args.output_dir, "weights_{}.png".format(name))
         skimage.io.imsave(path, im_viz)
 
       a_ = sess.run(activations, {t_lowres_input: im0})
-      for name in a_.keys():
+      for name in list(a_.keys()):
         im_viz = viz_array(a_[name])
         path = os.path.join(args.output_dir, "activations_{}.png".format(name))
         skimage.io.imsave(path, im_viz)

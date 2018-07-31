@@ -22,6 +22,7 @@ import numpy as np
 import os
 import random
 import itertools
+import pandas as pd
 
 import tensorflow as tf
 from tensorflow import FixedLenFeature
@@ -30,9 +31,6 @@ log = logging.getLogger("root")
 log.setLevel(logging.INFO)
 
 __all__ = [
-    'ImageFilesDataPipeline',
-    'StyleTransferDataPipeline',
-    'HDRpDataPipeline',
     'LRNetDataPipeline'
 ]
 
@@ -42,9 +40,6 @@ def check_dir(dirname):
     if not os.path.isdir(dirname):
         log.error("Training dir {} does not exist".format(dirname))
         return False
-    if not "filelist.txt" in fnames:
-        log.error("Training dir {} does not containt 'filelist.txt'".format(dirname))
-        return False
     if not "input" in fnames:
         log.error("Training dir {} does not containt 'input' folder".format(dirname))
     if not "output" in fnames:
@@ -53,7 +48,7 @@ def check_dir(dirname):
     return True
 
 
-class DataPipeline(object):
+class DataPipeline(object, metaclass=abc.ABCMeta):
     """Abstract operator to stream data to the network.
 
     Attributes:
@@ -69,8 +64,6 @@ class DataPipeline(object):
         'image_output' (the filtered image to match),
         'guide_image' (the image used to slice in the grid).
     """
-
-    __metaclass__ = abc.ABCMeta
 
     def __init__(self, path, batch_size=32,
                  capacity=16,
@@ -174,146 +167,42 @@ class DataPipeline(object):
 
             return fullres, inout
 
-
-class ImageFilesDataPipeline(DataPipeline):
-    """Pipeline to process pairs of images from a list of image files.
-
-    Assumes path contains:
-      - a file named 'filelist.txt' listing the image names.
-      - a subfolder 'input'
-      - a subfolder 'output'
-    """
-
-    def _produce_one_sample(self):
-        dirname = os.path.dirname(self.path)
-        if not check_dir(dirname):
-            raise ValueError("Invalid data path.")
-        with open(self.path, 'r') as fid:
-            flist = [l.strip() for l in fid.xreadlines()]
-
-        if self.shuffle:
-            random.shuffle(flist)
-
-        input_files = [os.path.join(dirname, 'input', f) for f in flist]
-        output_files = [os.path.join(dirname, 'output', f) for f in flist]
-
-        self.nsamples = len(input_files)
-
-        input_queue, output_queue = tf.train.slice_input_producer(
-            [input_files, output_files], shuffle=self.shuffle,
-            seed=0123, num_epochs=self.num_epochs)
-
-        if '16-bit' in magic.from_file(input_files[0]):
-            input_dtype = tf.uint16
-            input_wl = 65535.0
-        else:
-            input_wl = 255.0
-            input_dtype = tf.uint8
-        if '16-bit' in magic.from_file(output_files[0]):
-            output_dtype = tf.uint16
-            output_wl = 65535.0
-        else:
-            output_wl = 255.0
-            output_dtype = tf.uint8
-
-        input_file = tf.read_file(input_queue)
-        output_file = tf.read_file(output_queue)
-
-        if os.path.splitext(input_files[0])[-1] == '.jpg':
-            im_input = tf.image.decode_jpeg(input_file, channels=3)
-        else:
-            im_input = tf.image.decode_png(input_file, dtype=input_dtype, channels=3)
-
-        if os.path.splitext(output_files[0])[-1] == '.jpg':
-            im_output = tf.image.decode_jpeg(output_file, channels=3)
-        else:
-            im_output = tf.image.decode_png(output_file, dtype=output_dtype, channels=3)
-
-        # normalize input/output
-        sample = {}
-        with tf.name_scope('normalize_images'):
-            im_input = tf.to_float(im_input) / input_wl
-            im_output = tf.to_float(im_output) / output_wl
-
-        inout = tf.concat([im_input, im_output], 2)
-        fullres, inout = self._augment_data(inout, 6)
-
-        sample['lowres_input'] = inout[:, :, :3]
-        sample['lowres_output'] = inout[:, :, 3:]
-        sample['image_input'] = fullres[:, :, :3]
-        sample['image_output'] = fullres[:, :, 3:]
-        return sample
-
-
 class LRNetDataPipeline(DataPipeline):
 
     def _produce_one_sample(self):
         dirname = os.path.dirname(self.path)
+
+        self.nsamples = pd.read_csv(self.path).shape[0]
+
         if not check_dir(dirname):
             raise ValueError("Invalid data path.")
-        with open(self.path, 'r') as fid:
-            flist = [l.strip() for l in fid.xreadlines()]
 
-        if self.shuffle:
-            random.shuffle(flist)
+        data_root = tf.constant(dirname + '/')
 
-        input_files = [os.path.join(dirname, 'input', f) for f in flist]
-        output_files = [os.path.join(dirname, 'output', f) for f in flist]
-        json_files = [os.path.join(dirname, 'json', os.path.splitext(f)[0] + '.json') for f in flist]
+        file = tf.train.string_input_producer([self.path])
+        reader = tf.TextLineReader(skip_header_lines=1)
 
-        self.nsamples = len(input_files)
+        key, value = reader.read(file)
 
-        input_queue, output_queue, json_queue = tf.train.slice_input_producer(
-            [input_files, output_files, json_files], shuffle=self.shuffle,
-            seed=123, num_epochs=self.num_epochs
-        )
+        row = tf.decode_csv(value, [[''], ['']] + [[0.]] * self.params['lr_params'])
 
-        if '16-bit' in magic.from_file(input_files[0]):
-            input_dtype = tf.uint16
-            input_wl = 65535.0
-        else:
-            input_wl = 255.0
-            input_dtype = tf.uint8
-        if '16-bit' in magic.from_file(output_files[0]):
-            output_dtype = tf.uint16
-            output_wl = 65535.0
-        else:
-            output_wl = 255.0
-            output_dtype = tf.uint8
+        input_file, output_file = row[:2] # File names are in first two columns
+        params = tf.stack(row[2:]) # And parameters are the rest
 
-        input_file = tf.read_file(input_queue)
-        output_file = tf.read_file(output_queue)
-        json_file = tf.read_file(json_queue)
+        dtype = tf.uint16
+        wl = 65535.0
 
-        if os.path.splitext(input_files[0])[-1] == '.jpg':
-            im_input = tf.image.decode_jpeg(input_file, channels=3)
-        else:
-            im_input = tf.image.decode_png(input_file, dtype=input_dtype, channels=3)
+        input_file = tf.read_file(tf.string_join([data_root, input_file]))
+        output_file = tf.read_file(tf.string_join([data_root, output_file]))
 
-        if os.path.splitext(output_files[0])[-1] == '.jpg':
-            im_output = tf.image.decode_jpeg(output_file, channels=3)
-        else:
-            im_output = tf.image.decode_png(output_file, dtype=output_dtype, channels=3)
-
-        lr_param_names = self.params['lr_params']
-        lr_params = tf.decode_json_example(json_file)
-
-        d = dict(zip(lr_param_names, itertools.repeat(FixedLenFeature([1], tf.float32))))
-        print d
-        lr_params = tf.parse_example(
-            [lr_params],
-            d
-        )
-
-
-        lr_params = [tf.expand_dims(lr_params[name], 0) for name in lr_param_names]
-        lr_params = tf.concat(lr_params, 1)
+        im_input = tf.image.decode_png(input_file, dtype=dtype, channels=3)
+        im_output = tf.image.decode_png(output_file, dtype=dtype, channels=3)
 
         # normalize input/output
         sample = {}
         with tf.name_scope('normalize_images'):
-            im_input = tf.to_float(im_input) / input_wl
-            im_output = tf.to_float(im_output) / output_wl
+            im_input = tf.to_float(im_input) / wl
+            im_output = tf.to_float(im_output) / wl
 
         inout = tf.concat([im_input, im_output], 2)
         fullres, inout = self._augment_data(inout, 6)
@@ -322,110 +211,8 @@ class LRNetDataPipeline(DataPipeline):
         sample['lowres_output'] = inout[:, :, 3:]
         sample['image_input'] = fullres[:, :, :3]
         sample['image_output'] = fullres[:, :, 3:]
-        sample['params'] = lr_params
+        sample['params'] = params
         return sample
-
-
-class HDRpDataPipeline(DataPipeline):
-    """Pipeline to process HDR+ dumps
-
-    Assumes :
-      - path points to a txt file listing the image path, relative to
-        the root of 'path'.
-    """
-
-    def _produce_one_sample(self):
-        root = os.path.dirname(os.path.abspath(self.path))
-        # TODO: check dir structure
-        with open(self.path, 'r') as fid:
-            flist = [l.strip() for l in fid.xreadlines()]
-        input_files = [os.path.join(root, f) for f in flist if '.tfrecords' in f]
-
-        if self.shuffle:
-            random.shuffle(input_files)
-
-        self._reader = RecordReader(input_files, shuffle=self.shuffle, num_epochs=self.num_epochs)
-        sample = self._reader.read()
-
-        self.nsamples = len(input_files)
-
-        # white-level
-        input_wl = 32767.0
-        output_wl = 255.0
-
-        # normalize input/output
-        with tf.name_scope('normalize_images'):
-            im_input = sample['image_input']
-            im_input = tf.to_float(im_input) / input_wl
-
-            im_output = sample['image_output']
-            im_output = tf.to_float(im_output) / output_wl
-
-        inout = tf.concat([im_input, im_output], 2)
-        fullres, inout = self._augment_data(inout, 6)
-
-        sample['lowres_input'] = inout[:, :, :3]
-        sample['lowres_output'] = inout[:, :, 3:]
-        sample['image_input'] = fullres[:, :, :3]
-        sample['image_output'] = fullres[:, :, 3:]
-
-        return sample
-
-
-class StyleTransferDataPipeline(DataPipeline):
-    def _produce_one_sample(self):
-        # TODO: check dir structure
-        with open(os.path.join(self.path, 'filelist.txt'), 'r') as fid:
-            flist = [l.strip() for l in fid.xreadlines()]
-
-        with open(os.path.join(self.path, 'targets.txt'), 'r') as fid:
-            tlist = [l.strip() for l in fid.xreadlines()]
-
-        input_files = []
-        model_files = []
-        output_files = []
-        for f in flist:
-            for t in tlist:
-                input_files.append(os.path.join(self.path, 'input', f))
-                model_files.append(os.path.join(self.path, 'input', t + '.png'))
-                output_files.append(os.path.join(self.path, 'output', t, f))
-
-        self.nsamples = len(input_files)
-
-        input_queue, model_queue, output_queue = tf.train.slice_input_producer(
-            [input_files, model_files, output_files], capacity=1000, shuffle=self.shuffle,
-            num_epochs=self.num_epochs, seed=1234)
-
-        input_wl = 255.0
-        input_dtype = tf.uint8
-
-        input_file = tf.read_file(input_queue)
-        model_file = tf.read_file(model_queue)
-        output_file = tf.read_file(output_queue)
-
-        im_input = tf.image.decode_png(input_file, dtype=input_dtype, channels=3)
-        im_model = tf.image.decode_png(model_file, dtype=input_dtype, channels=3)
-        im_output = tf.image.decode_png(output_file, dtype=input_dtype, channels=3)
-
-        # normalize input/output
-        with tf.name_scope('normalize_images'):
-            im_input = tf.to_float(im_input) / input_wl
-            im_model = tf.to_float(im_model) / input_wl
-            im_output = tf.to_float(im_output) / input_wl
-
-        inout = tf.concat([im_input, im_output], 2)
-        fullres, inout = self._augment_data(inout, 6)
-
-        mdl = tf.image.resize_images(im_model, tf.shape(inout)[:2])
-
-        sample = {}
-        sample['lowres_input'] = tf.concat([inout[:, :, :3], mdl], 2)
-        sample['lowres_output'] = inout[:, :, 3:]
-        fullres_mdl = tf.image.resize_images(im_model, tf.shape(fullres)[:2])
-        sample['image_input'] = tf.concat([fullres[:, :, :3], fullres_mdl], 2)
-        sample['image_output'] = fullres[:, :, 3:]
-        return sample
-
 
 # __all__ = ['RecordWriter', 'RecordReader',]
 
@@ -484,7 +271,7 @@ class RecordWriter(object):
             self._writer = tf.python_io.TFRecordWriter(self._fname)
 
         feature = {}
-        for k in data.keys():
+        for k in list(data.keys()):
             feature[k] = self._bytes_feature(data[k].tobytes())
             feature[k + '_sz'] = self._int64_list_feature(data[k].shape)
             feature[k + '_dtype'] = self._int64_feature(TYPEMAP[data[k].dtype])

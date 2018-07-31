@@ -77,7 +77,7 @@ def fc(inputs, num_outputs,
 
   output = tf.contrib.layers.fully_connected(
       inputs=inputs,
-      num_outputs=num_outputs,
+      num_outputs=int(num_outputs),
       weights_initializer=w_initializer(),
       weights_regularizer=tf.contrib.layers.l2_regularizer(1.0),
       biases_initializer=b_init,
