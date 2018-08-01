@@ -76,7 +76,9 @@ class DataPipeline(object, metaclass=abc.ABCMeta):
                  random_crop=False,
                  params=None,
                  nthreads=1,
-                 num_epochs=None):
+                 num_epochs=None,
+                 validate_sizes=True):
+        self.validate_sizes = validate_sizes
         self.path = path
         self.batch_size = batch_size
         self.capacity = capacity
@@ -137,35 +139,36 @@ class DataPipeline(object, metaclass=abc.ABCMeta):
 
             inout.set_shape([None, None, nchan])
 
-            with tf.name_scope('crop'):
-                shape = tf.shape(inout)
-                new_height = tf.to_int32(self.output_resolution[0])
-                new_width = tf.to_int32(self.output_resolution[1])
-                height_ok = tf.assert_less_equal(new_height, shape[0])
-                width_ok = tf.assert_less_equal(new_width, shape[1])
-                with tf.control_dependencies([height_ok, width_ok]):
-                    if self.random_crop:
-                        inout = tf.random_crop(
-                            inout, tf.stack([new_height, new_width, nchan]))
-                    else:
-                        height_offset = tf.to_int32((shape[0] - new_height) / 2)
-                        width_offset = tf.to_int32((shape[1] - new_width) / 2)
-                        inout = tf.image.crop_to_bounding_box(
-                            inout, height_offset, width_offset,
-                            new_height, new_width)
+            if self.validate_sizes:
+                with tf.name_scope('crop'):
+                    shape = tf.shape(inout)
+                    new_height = tf.to_int32(self.output_resolution[0])
+                    new_width = tf.to_int32(self.output_resolution[1])
+                    height_ok = tf.assert_less_equal(new_height, shape[0])
+                    width_ok = tf.assert_less_equal(new_width, shape[1])
+                    with tf.control_dependencies([height_ok, width_ok]):
+                        if self.random_crop:
+                            inout = tf.random_crop(
+                                inout, tf.stack([new_height, new_width, nchan]))
+                        else:
+                            height_offset = tf.to_int32((shape[0] - new_height) / 2)
+                            width_offset = tf.to_int32((shape[1] - new_width) / 2)
+                            inout = tf.image.crop_to_bounding_box(
+                                inout, height_offset, width_offset,
+                                new_height, new_width)
 
             inout.set_shape([None, None, nchan])
-            inout = tf.image.resize_images(
-                inout, [self.output_resolution[0], self.output_resolution[1]])
+            inout = tf.image.resize_images(inout, self.output_resolution)
             fullres = inout
 
             with tf.name_scope('resize'):
-                new_size = 256
+                lowres_size = 256
                 inout = tf.image.resize_images(
-                    inout, [new_size, new_size],
+                    inout, [lowres_size, lowres_size],
                     method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
             return fullres, inout
+
 
 class LRNetDataPipeline(DataPipeline):
 
@@ -186,8 +189,8 @@ class LRNetDataPipeline(DataPipeline):
 
         row = tf.decode_csv(value, [[''], ['']] + [[0.]] * self.params['lr_params'])
 
-        input_file, output_file = row[:2] # File names are in first two columns
-        params = tf.stack(row[2:]) # And parameters are the rest
+        input_file, output_file = row[:2]  # File names are in first two columns
+        params = tf.stack(row[2:])  # And parameters are the rest
 
         dtype = tf.uint16
         wl = 65535.0
@@ -213,6 +216,7 @@ class LRNetDataPipeline(DataPipeline):
         sample['image_output'] = fullres[:, :, 3:]
         sample['params'] = params
         return sample
+
 
 # __all__ = ['RecordWriter', 'RecordReader',]
 

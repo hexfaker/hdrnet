@@ -81,7 +81,6 @@ def main(args):
         checkpoint_path = args.checkpoint_path
         if os.path.isdir(checkpoint_path):
             checkpoint_path = tf.train.latest_checkpoint(checkpoint_path)
-        
 
         if checkpoint_path is None:
             log.error('Could not find a checkpoint in {}'.format(args.checkpoint_path))
@@ -161,8 +160,8 @@ def main(args):
                 log.info("Stopping at limit {}".format(args.limit))
                 break
 
-            input_image = load_image(input_path)
-            gt_image = load_image(gt_path)
+            input_image = load_image(input_path, args.eval_resolution)
+            gt_image = load_image(gt_path, args.eval_resolution)
 
             # Make or Load lowres image
             if args.lowres_input is None:
@@ -170,7 +169,6 @@ def main(args):
                     input_image, [net_shape, net_shape], order=0, mode='constant', anti_aliasing=False)
             else:
                 raise NotImplemented
-
 
             basedir = args.output
             prefix = os.path.splitext(os.path.basename(input_path))[0]
@@ -231,12 +229,12 @@ def save_img(out_image):
     return (np.array(out_image) * 255).astype(np.uint8)
 
 
-def load_image(input_path):
+def load_image(input_path, size):
     im_input = cv2.imread(input_path, -1)  # -1 means read as is, no conversions.
     if im_input.shape[2] == 4:
         im_input = im_input[:, :, :3]
-    im_input = np.flip(im_input, 2)  # OpenCV reads BGR, convert back to RGB.
-
+    im_input = np.flip(im_input, 2)  # OpenCV reads BGR, convert back to RGB
+    im_input = cv2.resize(im_input, tuple(size), cv2.INTER_LINEAR)
     im_input = skimage.img_as_float(im_input)
     return im_input
 
@@ -253,6 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('--lowres_input', default=None, help='path to the lowres, TF inputs')
     parser.add_argument('--no_save_gt', action='store_true')
     parser.add_argument('--no_save_input', action='store_true')
+    parser.add_argument('--eval_resolution', default=[400, 600])
     parser.add_argument('--hdrp', dest="hdrp", action="store_true", help='special flag for HDR+ to set proper range')
     parser.add_argument('--nohdrp', dest="hdrp", action="store_false")
     parser.add_argument('--debug', dest="debug", action="store_true",

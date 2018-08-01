@@ -18,7 +18,9 @@ RUN apt-get update && \
 
 COPY hdrnet/requirements.txt /opt/requirements.txt
 RUN pip3 install --no-cache-dir -r /opt/requirements.txt
+COPY hdrnet/ops/ /opt/hdrnet/ops
+COPY hdrnet/Makefile /opt/hdrnet/
 WORKDIR /opt/hdrnet
-COPY hdrnet /opt/hdrnet
 RUN make
 ENV PYTHONPATH=/opt PATH="$PATH:/opt/hdrnet/bin"
+COPY hdrnet /opt/hdrnet

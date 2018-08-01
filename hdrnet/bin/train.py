@@ -81,7 +81,8 @@ def main(args, model_config, data_params):
                 batch_size=1, nthreads=1,
                 fliplr=False, flipud=False, rotate=False,
                 random_crop=False, params=data_params,
-                output_resolution=args.output_resolution)
+                validate_sizes=False,
+                output_resolution=args.eval_output_resolution)
             eval_samples = train_data_pipeline.samples
     # ---------------------------------------------------------------------------
 
@@ -214,9 +215,9 @@ if __name__ == '__main__':
     train_grp.add_argument('--log_interval', type=int, default=1, help='interval between log messages (in s).')
     train_grp.add_argument('--summary_interval', type=int, default=10,
                            help='interval between tensorboard summaries (in s)')
-    train_grp.add_argument('--checkpoint_interval', type=int, default=120,
+    train_grp.add_argument('--checkpoint_interval', type=int, default=3000,
                            help='interval between model checkpoints (in s)')
-    train_grp.add_argument('--eval_interval', type=int, default=120, help='interval between evaluations (in s)')
+    train_grp.add_argument('--eval_interval', type=int, default=6000, help='interval between evaluations (in s)')
 
     # Debug and perf profiling
     debug_grp = parser.add_argument_group('debug and profiling')
@@ -246,6 +247,10 @@ if __name__ == '__main__':
     model_grp.add_argument('--net_input_size', default=256, type=int, help="size of the network's lowres image input.")
     model_grp.add_argument('--output_resolution', default=[512, 512], type=int, nargs=2,
                            help='resolution of the output image.')
+
+    model_grp.add_argument('--eval_output_resolution', default=[400, 600], type=int, nargs=2,
+                           help='resolution of the output image.')
+    
     model_grp.add_argument('--batch_norm', dest='batch_norm', action='store_true',
                            help='normalize batches. If False, uses the moving averages.')
     model_grp.add_argument('--nobatch_norm', dest='batch_norm', action='store_false')

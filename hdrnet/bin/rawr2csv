@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+import argparse
+import glob
+import os
+from collections import OrderedDict
+import json
+import random
+import pandas as pd
+
+
+def list_dir_suffix(path, suffix):
+    files = glob.glob(os.path.join(path, '*' + suffix))
+
+    return list(map(lambda path: os.path.basename(path).replace(suffix, ''), files))
+
+
+def prefixes_to_abspath(prefixes, base_path, suffix):
+    return list(map(lambda p: os.path.join(base_path, p + suffix), prefixes))
+
+
+def gather_triplets(input_path, target_path, json_path, input_suffix, target_suffix, json_suffix):
+    json_prefixes, input_prefixes, target_prefixes = \
+        [list_dir_suffix(path, suffix) for path, suffix in
+         [(json_path, json_suffix), (input_path, input_suffix), (target_path, target_suffix)]]
+
+    valid_prefixes = set(json_prefixes).intersection(input_prefixes).intersection(target_prefixes)
+
+    inputs = prefixes_to_abspath(valid_prefixes, input_path, input_suffix)
+    targets = prefixes_to_abspath(valid_prefixes, target_path, target_suffix)
+    jsons = prefixes_to_abspath(valid_prefixes, json_path, json_suffix)
+
+    return [OrderedDict(input=input, target=target, json=json) for input, target, json in zip(inputs, targets, jsons)]
+
+
+def make_rows(triplets, splits_path):
+    res = []
+
+    for t in triplets:
+        with open(t['json'], 'r') as file:
+            params = json.load(file)  # type: OrderedDict
+            input = t['input'].replace(splits_path, "")
+            output = t['target'].replace(splits_path, "")
+            params.update(dict(input=input, output=output))
+
+        res.append(params)
+    return res
+
+
+def split(all_rows, test_size, val_size, total, random_state):
+    random.seed(random_state)
+    random.shuffle(all_rows)
+
+    if total is None:
+        total = len(all_rows)
+
+    all_rows = all_rows[:total]
+
+    test_start = int(total * (1 - val_size - test_size))
+    val_start = int(total * (1 - val_size))
+
+    return all_rows[:test_start], all_rows[test_start:val_start], all_rows[val_start:]
+
+
+def write_split(fname, rows):
+    df = pd.DataFrame(rows)
+
+    cols = df.columns.tolist()
+    cols = cols[-2:] + cols[:-2]  # Move input and target columns to the beginning
+
+    df[cols].to_csv(fname, index=False)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog='raw2csv',
+        description="Gather splits from input, target and json dirs."
+                    " - Lists all files in input, target and json dir ending with given suffixes"
+                    " - Matches triplets by filename ignoring suffixes"
+                    " - Loads json into memory"
+                    " - Distribute all samples between train, test and maybe validation sets"
+                    " - Save them to disk as csv"
+    )
+
+    parser.add_argument('input_dir', help='Directory containing input images')
+    parser.add_argument('target_dir', help='Directory containing target images')
+    parser.add_argument('json_dir', help='Directory containing jsons')
+    parser.add_argument(
+        'split_dir',
+        help='Directory where split files will be stored (must be jsons, inputs and targets dir parent of some level)'
+    )
+
+    parser.add_argument('--json-suffix', default='.json')
+    parser.add_argument('--input-suffix', default='.png')
+    parser.add_argument('--target-suffix', default='.png')
+    parser.add_argument('--test-size', default=0.3, type=float)
+    parser.add_argument('--val-size', default=0., type=float)
+    parser.add_argument('--total-samples', default=None, type=int)
+    parser.add_argument('--splits-name-suffix', default='')
+    parser.add_argument('--random-seed', default=1, type=int)
+
+    args = parser.parse_args()
+
+    input_dir = os.path.abspath(args.input_dir)
+    json_dir = os.path.abspath(args.json_dir)
+    target_dir = os.path.abspath(args.target_dir)
+    split_dir = os.path.abspath(args.split_dir)
+
+    if not (json_dir.startswith(split_dir)
+            and input_dir.startswith(split_dir)
+            and target_dir.startswith(split_dir)):
+        raise Exception('split-dir must be json, input and target dirs parent of some level')
+
+    triplets = \
+        gather_triplets(input_dir, target_dir, json_dir, args.input_suffix, args.target_suffix, args.json_suffix)
+
+    print("{} valid triplets found".format(len(triplets)))
+
+    rows = make_rows(triplets, args.split_dir)
+
+    train, test, val = split(rows, args.test_size, args.val_size, args.total_samples, args.random_seed)
+
+    print("train={}, test={}, val={}".format(len(train), len(test), len(val)))
+
+    split_suffix = '.csv'
+
+    if len(args.splits_name_suffix) > 0:
+        split_suffix = '_' + args.splits_name_suffix + split_suffix
+
+    write_split(os.path.join(split_dir, 'train' + split_suffix), train)
+    write_split(os.path.join(split_dir, 'test' + split_suffix), test)
+
+    if len(val) > 0:
+        write_split(os.path.join(split_dir, 'val' + split_suffix), val)
