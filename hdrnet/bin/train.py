@@ -22,11 +22,13 @@ import os
 import setproctitle
 import tensorflow as tf
 import time
+import datetime
 
 import hdrnet.metrics as metrics
 
 import hdrnet.models as models
 import hdrnet.data_pipeline as dp
+import hdrnet.utils as utils
 
 logging.basicConfig(format="[%(process)d] %(levelname)s %(filename)s:%(lineno)s | %(message)s")
 log = logging.getLogger("train")
@@ -67,9 +69,9 @@ def main(args, model_config, data_params):
             args.data_dir,
             shuffle=True,
             batch_size=args.batch_size, nthreads=args.data_threads,
-            fliplr=args.fliplr, flipud=args.flipud, rotate=args.rotate,
-            random_crop=args.random_crop, params=data_params,
-            output_resolution=args.output_resolution)
+            params=data_params,
+            validate_sizes=False,
+            output_resolution=model_config['output_resolution'])
         train_samples = train_data_pipeline.samples
 
     eval_samples = None
@@ -82,7 +84,7 @@ def main(args, model_config, data_params):
                 fliplr=False, flipud=False, rotate=False,
                 random_crop=False, params=data_params,
                 validate_sizes=False,
-                output_resolution=args.eval_output_resolution)
+                output_resolution=model_config['eval_output_resolution'])
             eval_samples = train_data_pipeline.samples
     # ---------------------------------------------------------------------------
 
@@ -206,6 +208,7 @@ if __name__ == '__main__':
     req_grp.add_argument('checkpoint_dir', default=None, help='directory to save checkpoints to.')
     req_grp.add_argument('data_dir', default=None, help='input directory containing the training .tfrecords or images.')
     req_grp.add_argument('--eval_data_dir', default=None, type=str, help='directory with the validation data.')
+    req_grp.add_argument('--config', default=None)
 
     # Training, logging and checkpointing parameters
     train_grp = parser.add_argument_group('training')
@@ -250,7 +253,7 @@ if __name__ == '__main__':
 
     model_grp.add_argument('--eval_output_resolution', default=[400, 600], type=int, nargs=2,
                            help='resolution of the output image.')
-    
+
     model_grp.add_argument('--batch_norm', dest='batch_norm', action='store_true',
                            help='normalize batches. If False, uses the moving averages.')
     model_grp.add_argument('--nobatch_norm', dest='batch_norm', action='store_false')
@@ -275,13 +278,20 @@ if __name__ == '__main__':
 
 args = parser.parse_args()
 
-model_cofig = {}
+model_config = {}
 for a in model_grp._group_actions:
-    model_cofig[a.dest] = getattr(args, a.dest, None)
+    model_config[a.dest] = getattr(args, a.dest, None)
 
 dataloader_config = {}
 for a in data_grp._group_actions:
     dataloader_config[a.dest] = getattr(args, a.dest, None)
 dataloader_config['lr_params'] = args.lr_params
 
-main(args, model_cofig, dataloader_config)
+model_config.update(utils.get_config(args.config, 'model'))
+dataloader_config.update(utils.get_config(args.config, 'data'))
+
+utils.dump_config(os.path.join(args.checkpoint_dir,
+                               "effective-config_{}.yaml".format(datetime.datetime.today())),
+                  model_config, dataloader_config)
+
+main(args, model_config, dataloader_config)

@@ -25,6 +25,7 @@ import itertools
 import pandas as pd
 
 import tensorflow as tf
+import tensorflow.contrib.slim as tf_slim
 from tensorflow import FixedLenFeature
 
 log = logging.getLogger("root")
@@ -108,19 +109,20 @@ class DataPipeline(object, metaclass=abc.ABCMeta):
 
         # Batch and shuffle
         if self.shuffle:
-            samples = tf.train.shuffle_batch(
+            batched_samples = tf.train.shuffle_batch(
                 sample,
                 batch_size=self.batch_size,
                 num_threads=self.nthreads,
                 capacity=self.capacity,
                 min_after_dequeue=self.min_after_dequeue)
         else:
-            samples = tf.train.batch(
+            batched_samples = tf.train.batch(
                 sample,
                 batch_size=self.batch_size,
                 num_threads=self.nthreads,
                 capacity=self.capacity)
-        return samples
+
+        return tf_slim.prefetch_queue.prefetch_queue(batched_samples, num_threads=self.nthreads).dequeue()
 
     def _augment_data(self, inout, nchan=6):
         """Flip, crop and rotate samples randomly."""
@@ -171,32 +173,31 @@ class DataPipeline(object, metaclass=abc.ABCMeta):
 
 
 class LRNetDataPipeline(DataPipeline):
-
     def _produce_one_sample(self):
         dirname = os.path.dirname(self.path)
 
         self.nsamples = pd.read_csv(self.path).shape[0]
 
-        if not check_dir(dirname):
-            raise ValueError("Invalid data path.")
-
         data_root = tf.constant(dirname + '/')
 
-        file = tf.train.string_input_producer([self.path])
+        file = tf.train.string_input_producer(
+            [self.path],
+            self.num_epochs
+        )
         reader = tf.TextLineReader(skip_header_lines=1)
 
         key, value = reader.read(file)
 
         row = tf.decode_csv(value, [[''], ['']] + [[0.]] * self.params['lr_params'])
 
-        input_file, output_file = row[:2]  # File names are in first two columns
+        input_filename, output_filename = row[:2]  # File names are in first two columns
         params = tf.stack(row[2:])  # And parameters are the rest
 
         dtype = tf.uint16
         wl = 65535.0
 
-        input_file = tf.read_file(tf.string_join([data_root, input_file]))
-        output_file = tf.read_file(tf.string_join([data_root, output_file]))
+        input_file = tf.read_file(tf.string_join([data_root, input_filename]))
+        output_file = tf.read_file(tf.string_join([data_root, output_filename]))
 
         im_input = tf.image.decode_png(input_file, dtype=dtype, channels=3)
         im_output = tf.image.decode_png(output_file, dtype=dtype, channels=3)
@@ -215,6 +216,7 @@ class LRNetDataPipeline(DataPipeline):
         sample['image_input'] = fullres[:, :, :3]
         sample['image_output'] = fullres[:, :, 3:]
         sample['params'] = params
+        sample["input_filename"] = input_filename
         return sample
 
 

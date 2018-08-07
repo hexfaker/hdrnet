@@ -14,10 +14,26 @@
 """TF graph utilities."""
 
 import tensorflow as tf
+import yaml
 
 
 def get_model_params(sess, param_collection="model_params"):
-  pcoll = tf.get_collection(param_collection)
-  params_ = {p.name.split(':')[0]: p for p in pcoll}
-  model_params = sess.run(params_)
-  return model_params
+    pcoll = tf.get_collection(param_collection)
+    params_ = {p.name.split(':')[0]: p for p in pcoll}
+    model_params = sess.run(params_)
+    return model_params
+
+
+def get_config(path, name):
+    with open(path, 'r') as f:
+        conf = yaml.load(f)
+
+    if name in conf:
+        return conf[name]
+
+    return {}
+
+
+def dump_config(path, model, data):
+    with open(path, 'w') as f:
+        yaml.dump(dict(model=model, data=data), f)
