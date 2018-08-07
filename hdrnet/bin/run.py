@@ -251,7 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('--lowres_input', default=None, help='path to the lowres, TF inputs')
     parser.add_argument('--no_save_gt', action='store_true')
     parser.add_argument('--no_save_input', action='store_true')
-    parser.add_argument('--eval_resolution', default=[400, 600])
+    parser.add_argument('--eval_resolution', default=[600, 400], nargs=2)
     parser.add_argument('--hdrp', dest="hdrp", action="store_true", help='special flag for HDR+ to set proper range')
     parser.add_argument('--nohdrp', dest="hdrp", action="store_false")
     parser.add_argument('--debug', dest="debug", action="store_true",

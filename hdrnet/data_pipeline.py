@@ -89,6 +89,15 @@ class DataPipeline(object, metaclass=abc.ABCMeta):
         self.num_epochs = num_epochs
         self.params = params
 
+        if 'image_stats' in params:
+            self.image_stats = self.params['image_stats']
+        else:
+            self.image_stats = None
+        if 'param_stats' in params:
+            self.param_stats = self.params['param_stats']
+        else:
+            self.param_stats = None
+
         self.output_resolution = output_resolution
 
         # Data augmentation
@@ -176,7 +185,9 @@ class LRNetDataPipeline(DataPipeline):
     def _produce_one_sample(self):
         dirname = os.path.dirname(self.path)
 
-        self.nsamples = pd.read_csv(self.path).shape[0]
+        all_data = pd.read_csv(self.path)
+        self.nsamples = all_data.shape[0]
+        self.param_order = list(all_data.columns)[2:]
 
         data_root = tf.constant(dirname + '/')
 
@@ -207,6 +218,17 @@ class LRNetDataPipeline(DataPipeline):
         with tf.name_scope('normalize_images'):
             im_input = tf.to_float(im_input) / wl
             im_output = tf.to_float(im_output) / wl
+
+        if self.image_stats is not None:
+            image_means = np.reshape(self.image_stats['mean'], (1, 1, 3))
+            image_stds = np.reshape(self.image_stats['std'], (1, 1, 3))
+            im_input = (im_input - image_means) / image_stds
+
+        if self.param_stats is not None:
+            param_means = np.array([self.param_stats['mean'][param] for param in self.param_order])
+            param_stds = np.array([self.param_stats['std'][param] for param in self.param_order])
+
+            params = (params - param_means) / param_stds
 
         inout = tf.concat([im_input, im_output], 2)
         fullres, inout = self._augment_data(inout, 6)

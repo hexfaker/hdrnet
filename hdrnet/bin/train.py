@@ -240,6 +240,9 @@ if __name__ == '__main__':
     data_grp.add_argument('--random_crop', dest="random_crop", action="store_true",
                           help='random crop data augmentation.')
     data_grp.add_argument('--norandom_crop', dest="random_crop", action="store_false")
+    data_grp.add_argument('--normalization-stats', default='',
+                          help='Path to json containing mean and std for image and\or params')
+
 
     # Model parameters
     model_grp = parser.add_argument_group('model_params')
@@ -287,8 +290,16 @@ for a in data_grp._group_actions:
     dataloader_config[a.dest] = getattr(args, a.dest, None)
 dataloader_config['lr_params'] = args.lr_params
 
+
+if len(args.normalization_stats) > 0:
+    stats = utils.load_stats(args.normalization_stats)
+else:
+    stats = {}
+    
+
 model_config.update(utils.get_config(args.config, 'model'))
 dataloader_config.update(utils.get_config(args.config, 'data'))
+dataloader_config.update(stats)
 
 utils.dump_config(os.path.join(args.checkpoint_dir,
                                "effective-config_{}.yaml".format(datetime.datetime.today())),

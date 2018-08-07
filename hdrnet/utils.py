@@ -37,3 +37,12 @@ def get_config(path, name):
 def dump_config(path, model, data):
     with open(path, 'w') as f:
         yaml.dump(dict(model=model, data=data), f)
+
+
+def load_stats(path):
+    with open(path, 'r') as f:
+        stats = yaml.load(f)
+
+    if stats is None:
+        return {}
+    return stats

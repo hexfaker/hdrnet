@@ -45,7 +45,6 @@ def setup_graph(model_params, inputs):
 
     mdl = getattr(models, model_name)
 
-    tf.reset_default_graph()
     with tf.name_scope('eval'):
         with tf.variable_scope('inference'):
             prediction = mdl.inference(
@@ -57,7 +56,7 @@ def setup_graph(model_params, inputs):
             loss = metrics.l1_loss(inputs['image_output'], prediction)
 
             return [
-                inputs['image_inputs'],
+                inputs['image_input'],
                 prediction,
                 inputs['image_output'],
                 loss,
@@ -75,6 +74,7 @@ def save_report(df, args):
 
 def run_evaluation(samples, total_samples, session, args):
     losses = []
+    tf.train.start_queue_runners()
     for _ in tqdm.tqdm(range(total_samples)):
         try:
             input, output, target, loss, filename = session.run(samples)
