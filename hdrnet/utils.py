@@ -17,6 +17,16 @@ import tensorflow as tf
 import yaml
 
 
+def yaml2dict(path):
+    with open(path, 'r') as f:
+        return yaml.load(f)
+
+
+def dict2yaml(dict, path):
+    with open(path, 'w') as f:
+        return yaml.dump(dict, f)
+
+
 def get_model_params(sess, param_collection="model_params"):
     pcoll = tf.get_collection(param_collection)
     params_ = {p.name.split(':')[0]: p for p in pcoll}

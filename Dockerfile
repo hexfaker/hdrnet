@@ -14,7 +14,8 @@ RUN apt-get update && \
             libpng-dev \
             libjpeg-dev && \
     rm -rf /var/lib/apt/lists/* && \
-    pip3 install --no-cache-dir Cython numpy pytest scipy opencv-python
+    pip3 install --no-cache-dir Cython numpy pytest scipy opencv-python && \
+    pip3 install --no-cache-dir http://download.pytorch.org/whl/cu80/torch-0.4.1-cp35-cp35m-linux_x86_64.whl
 
 COPY hdrnet/requirements.txt /opt/requirements.txt
 RUN pip3 install --no-cache-dir -r /opt/requirements.txt
@@ -22,5 +23,5 @@ COPY hdrnet/ops/ /opt/hdrnet/ops
 COPY hdrnet/Makefile /opt/hdrnet/
 WORKDIR /opt/hdrnet
 RUN make
-ENV PYTHONPATH=/opt PATH="$PATH:/opt/hdrnet/bin"
+ENV PYTHONPATH=/opt:/opt/hdrnet PATH="$PATH:/opt/hdrnet/bin" OPENCV_OPENCL_DEVICE=disabled
 COPY hdrnet /opt/hdrnet

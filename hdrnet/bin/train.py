@@ -23,6 +23,7 @@ import setproctitle
 import tensorflow as tf
 import time
 import datetime
+import skimage.io
 
 import hdrnet.metrics as metrics
 
@@ -63,29 +64,30 @@ def main(args, model_config, data_params):
         tf.add_to_collection('model_params', p_)
 
     # --- Train/Test datasets ---------------------------------------------------
-    data_pipe = getattr(dp, args.data_pipeline)
-    with tf.variable_scope('train_data'):
-        train_data_pipeline = data_pipe(
-            args.data_dir,
-            shuffle=True,
-            batch_size=args.batch_size, nthreads=args.data_threads,
-            params=data_params,
-            validate_sizes=False,
-            output_resolution=model_config['output_resolution'])
-        train_samples = train_data_pipeline.samples
-
-    eval_samples = None
-    if args.eval_data_dir is not None:
-        with tf.variable_scope('eval_data'):
-            eval_data_pipeline = data_pipe(
-                args.eval_data_dir,
-                shuffle=False,
-                batch_size=1, nthreads=1,
-                fliplr=False, flipud=False, rotate=False,
-                random_crop=False, params=data_params,
+    with tf.device('/cpu:0'):
+        data_pipe = getattr(dp, args.data_pipeline)
+        with tf.variable_scope('train_data'):
+            train_data_pipeline = data_pipe(
+                args.data_dir,
+                shuffle=True,
+                batch_size=args.batch_size, nthreads=args.data_threads,
+                params=data_params,
                 validate_sizes=False,
-                output_resolution=model_config['eval_output_resolution'])
-            eval_samples = train_data_pipeline.samples
+                output_resolution=model_config['output_resolution'])
+            train_samples = train_data_pipeline.samples
+
+        eval_samples = None
+        if args.eval_data_dir is not None:
+            with tf.variable_scope('eval_data'):
+                eval_data_pipeline = data_pipe(
+                    args.eval_data_dir,
+                    shuffle=False,
+                    batch_size=1, nthreads=1,
+                    fliplr=False, flipud=False, rotate=False,
+                    random_crop=False, params=data_params,
+                    validate_sizes=False,
+                    output_resolution=model_config['eval_output_resolution'])
+                eval_samples = eval_data_pipeline.samples
     # ---------------------------------------------------------------------------
 
     # Training graph

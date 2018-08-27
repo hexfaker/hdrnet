@@ -29,6 +29,7 @@ import skimage.transform
 import tensorflow as tf
 import pandas as pd
 import tqdm
+import yaml
 
 import hdrnet.models as models
 import hdrnet.utils as utils
@@ -61,18 +62,53 @@ def get_input_list_csv(path_to_csv):
     df = pd.read_csv(path_to_csv)
     root = os.path.dirname(path_to_csv)
 
-    return [(os.path.join(root, row[0]), os.path.join(root, row[1]), list(row[2:])) for row in
-            df.itertuples(False, None)]
+    param_order = list(df.columns)[2:]
+
+    return param_order, [(os.path.join(root, row[0]), os.path.join(root, row[1]), list(row[2:])) for row in
+                         df.itertuples(False, None)]
+
+
+def tf_resize(image, size):
+    return tf.image.resize_images(image, size, tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
 
 def dec(b):
     return b.decode('utf-8')
 
+    pass
+
+
+def normalize_image(image, stats):
+    if len(stats) > 0:
+        means = np.reshape(stats['mean'], (1, 1, 3))
+        stds = np.reshape(stats['std'], (1, 1, 3))
+        return (image - means) / stds
+    return image
+
+
+def load_stats(path):
+    if path == "":
+        return {}, {}
+    else:
+        with open(path, "r") as f:
+            stats = yaml.load(f)
+
+    return stats.get('image_stats', {}), stats.get('param_stats', {})
+
+
+def normalize_params(params, stats, param_order):
+    if len(stats) > 0:
+        means = np.array([stats['mean'][param] for param in param_order])
+        stds = np.array([stats['std'][param] for param in param_order])
+
+        return (params - means) / stds
+    return params
+
 
 def main(args):
     setproctitle.setproctitle('hdrnet_run')
 
-    inputs = get_input_list_csv(args.input)
+    param_order, inputs = get_input_list_csv(args.input)
 
     # -------- Load params ----------------------------------------------------
     config = tf.ConfigProto()
@@ -104,14 +140,18 @@ def main(args):
     tf.reset_default_graph()
     net_shape = model_params['net_input_size']
     t_fullres_input = tf.placeholder(tf.float32, (1, None, None, 3))
-    t_lowres_input = tf.placeholder(tf.float32, (1, net_shape, net_shape, 3))
     t_params_input = tf.placeholder(tf.float32, (1, model_params['lr_params']))
 
     with tf.variable_scope('inference'):
         prediction = mdl.inference(
-            t_lowres_input, t_fullres_input, t_params_input, model_params, is_training=False)
+            tf_resize(t_fullres_input, [net_shape, net_shape]),
+            t_fullres_input, t_params_input, model_params, is_training=False)
     output = tf.squeeze(tf.clip_by_value(prediction, 0, 1))
     saver = tf.train.Saver()
+
+    image_stats, param_stats = load_stats(args.stats)
+    print(param_stats)
+    print(image_stats)
 
     if args.debug:
         coeffs = tf.get_collection('bilateral_coefficients')[0]
@@ -163,12 +203,8 @@ def main(args):
             input_image = load_image(input_path, args.eval_resolution)
             gt_image = load_image(gt_path, args.eval_resolution)
 
-            # Make or Load lowres image
-            if args.lowres_input is None:
-                lowres_input = skimage.transform.resize(
-                    input_image, [net_shape, net_shape], order=0, mode='constant', anti_aliasing=False)
-            else:
-                raise NotImplemented
+            params = normalize_params(np.array(params), param_stats, param_order)
+            norm_input_image = normalize_image(input_image, image_stats)
 
             basedir = args.output
             prefix = os.path.splitext(os.path.basename(input_path))[0]
@@ -176,13 +212,11 @@ def main(args):
             gt_copy_path = os.path.join(basedir, prefix + "_gt.jpg")
             input_copy_path = os.path.join(basedir, prefix + "_1n.jpg")  # Not typo. ordering
 
-            input_image = input_image[np.newaxis, :, :, :]
-            lowres_input = lowres_input[np.newaxis, :, :, :]
+            norm_input_image = norm_input_image[np.newaxis, :, :, :]
             params = np.array(params)[np.newaxis, :]
 
             feed_dict = {
-                t_fullres_input: input_image,
-                t_lowres_input: lowres_input,
+                t_fullres_input: norm_input_image,
                 t_params_input: params
             }
 
@@ -194,12 +228,12 @@ def main(args):
             loss.append(np.mean(np.abs(gt_image - out_image)))
 
             skimage.io.imsave(output_path, save_img(out_image))
-            skimage.io.imsave(input_copy_path, save_img(input_image[0]))
+            skimage.io.imsave(input_copy_path, save_img(input_image))
             skimage.io.imsave(gt_copy_path, save_img(gt_image))
 
             if args.debug:
                 output_path = os.path.join(args.output, prefix + "_input.png")
-                skimage.io.imsave(output_path, np.squeeze(input_image))
+                skimage.io.imsave(output_path, np.squeeze(norm_input_image))
 
                 coeffs_ = sess.run(coeffs, feed_dict=feed_dict)
                 output_path = os.path.join(args.output, prefix + "_coeffs.png")
@@ -248,14 +282,11 @@ if __name__ == '__main__':
     parser.add_argument('output', default=None, help='path to save the processed images')
 
     # Optional
+    parser.add_argument('--stats', default="", help="")
     parser.add_argument('--lowres_input', default=None, help='path to the lowres, TF inputs')
     parser.add_argument('--no_save_gt', action='store_true')
     parser.add_argument('--no_save_input', action='store_true')
-    parser.add_argument('--eval_resolution', default=[600, 400], nargs=2)
-    parser.add_argument('--hdrp', dest="hdrp", action="store_true", help='special flag for HDR+ to set proper range')
-    parser.add_argument('--nohdrp', dest="hdrp", action="store_false")
-    parser.add_argument('--debug', dest="debug", action="store_true",
-                        help='If true, dumps debug data on guide and coefficients.')
+    parser.add_argument('--eval_resolution', default=None, type=int, nargs=2)
     parser.add_argument('--limit', type=int, help="limit the number of images processed.")
     parser.set_defaults(hdrp=False, debug=False)
     # pylint: enable=line-too-long
